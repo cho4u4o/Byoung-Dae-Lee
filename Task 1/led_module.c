@@ -10,7 +10,6 @@
 #define NUM_LEDS 4
 #define NUM_SWITCHES 4
 
-// 실제 Raspberry Pi GPIO 핀 매핑 (검증 필요)
 static int led_pins[NUM_LEDS] = {23, 24, 25, 1};
 static int switch_pins[NUM_SWITCHES] = {4, 17, 27, 22};
 static int irq_numbers[NUM_SWITCHES];
@@ -20,7 +19,7 @@ struct led_state {
     volatile int individual_direction;
     struct task_struct *thread;
     bool thread_running;
-    struct mutex lock;  // 뮤텍스 추가
+    struct mutex lock;  
 };
 
 static struct led_state led_control = {
@@ -31,7 +30,8 @@ static struct led_state led_control = {
 };
 
 static void reset_leds(void) {
-    for (int i = 0; i < NUM_LEDS; i++) {
+    int i; 
+    for (i = 0; i < NUM_LEDS; i++) {
         gpio_set_value(led_pins[i], 0);
     }
 }
@@ -49,9 +49,9 @@ static int led_thread_function(void *data) {
         mutex_unlock(&led_control.lock);
 
         switch (current_mode) {
-            case 0: // 전체 모드
+            case 0:
                 reset_leds();
-                for (int i = 0; i < NUM_LEDS; i++) {
+                for (i = 0; i < NUM_LEDS; i++) {
                     set_led(i, 1);
                 }
                 printk(KERN_INFO "All LEDs ON\n");
@@ -61,14 +61,14 @@ static int led_thread_function(void *data) {
                 msleep(2000);
                 break;
 
-            case 1: // 개별 모드
+            case 1: 
                 reset_leds();
                 mutex_lock(&led_control.lock);
                 int direction = led_control.individual_direction;
                 mutex_unlock(&led_control.lock);
 
                 if (direction == 0) {
-                    for (int i = 0; i < NUM_LEDS; i++) {
+                    for (i = 0; i < NUM_LEDS; i++) {
                         mutex_lock(&led_control.lock);
                         if (led_control.mode != 1) {
                             mutex_unlock(&led_control.lock);
@@ -82,7 +82,7 @@ static int led_thread_function(void *data) {
                         reset_leds();
                     }
                 } else {
-                    for (int i = NUM_LEDS - 1; i >= 0; i--) {
+                    for (i = NUM_LEDS - 1; i >= 0; i--) {
                         mutex_lock(&led_control.lock);
                         if (led_control.mode != 1) {
                             mutex_unlock(&led_control.lock);
@@ -120,14 +120,13 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
 
     mutex_lock(&led_control.lock);
     
-    // 기존 스레드 안전하게 중지
     if (led_control.thread && led_control.thread_running) {
         kthread_stop(led_control.thread);
         led_control.thread = NULL;
     }
 
     switch (led_control.mode) {
-        case 2: // 수동 모드
+        case 2: 
             if (switch_id < 3) {
                 reset_leds();
                 set_led(switch_id, 1);
@@ -135,19 +134,19 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
                 break;
             }
 
-        case 3: // 리셋 모드
+        case 3: 
             reset_leds();
             led_control.mode = -1;
             led_control.individual_direction = 0;
             printk(KERN_INFO "Reset mode: All LEDs OFF, Ready for new mode\n");
             break;
 
-        default: // 모드 선택
+        default: 
             led_control.mode = switch_id;
 
             switch (switch_id) {
-                case 0: // 전체 모드
-                case 1: // 개별 모드
+                case 0: 
+                case 1: 
                     led_control.thread = kthread_run(led_thread_function, NULL, "led_control_thread");
                     if (IS_ERR(led_control.thread)) {
                         printk(KERN_ERR "Failed to create LED control thread\n");
@@ -157,12 +156,12 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
                     }
                     break;
 
-                case 2: // 수동 모드
+                case 2: 
                     reset_leds();
                     printk(KERN_INFO "Manual mode: Select LED (0/1/2)\n");
                     break;
 
-                case 3: // 리셋 모드
+                case 3: 
                     reset_leds();
                     led_control.mode = -1;
                     printk(KERN_INFO "Reset mode: All LEDs OFF\n");
@@ -178,7 +177,7 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
 static int __init led_module_init(void) {
     int ret, i;
 
-    mutex_init(&led_control.lock);  // 뮤텍스 초기화
+    mutex_init(&led_control.lock);  
 
     printk(KERN_INFO "LED Module Init\n");
 
@@ -205,7 +204,6 @@ static int __init led_module_init(void) {
             return irq_numbers[i];
         }
 
-        // IRQF_TRIGGER_FALLING 또는 IRQF_TRIGGER_BOTH로 변경
         ret = request_irq(irq_numbers[i], switch_handler, IRQF_TRIGGER_FALLING, "switch_irq", (void *)(long)i);
         if (ret) {
             printk(KERN_ERR "Failed to request IRQ %d for GPIO %d\n", irq_numbers[i], switch_pins[i]);
