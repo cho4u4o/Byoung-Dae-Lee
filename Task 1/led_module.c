@@ -12,6 +12,7 @@
 
 static int led_pins[NUM_LEDS] = {23, 24, 25, 1};
 static int switch_pins[NUM_SWITCHES] = {4, 17, 27, 22};
+static bool led_states[NUM_LEDS] = {false, false, false, false}; 
 static int irq_numbers[NUM_SWITCHES];
 
 struct led_state {
@@ -43,6 +44,7 @@ static void set_led(int led_idx, int value) {
 }
 
 static int led_thread_function(void *data) {
+    int i;
     while (!kthread_should_stop()) {
         mutex_lock(&led_control.lock);
         int current_mode = led_control.mode;
@@ -129,8 +131,16 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
         case 2: 
             if (switch_id < 3) {
                 reset_leds();
-                set_led(switch_id, 1);
-                printk(KERN_INFO "Manual mode: LED[%d] ON\n", switch_id);
+                // 현재 LED 상태에 따라 켜거나 끄기
+                if (led_states[switch_id]) {
+                    set_led(switch_id, 0);  // 이미 켜져 있으면 끄기
+                    led_states[switch_id] = false;
+                    printk(KERN_INFO "Manual mode: LED[%d] OFF\n", switch_id);
+                } else {
+                    set_led(switch_id, 1);  // 꺼져 있으면 켜기
+                    led_states[switch_id] = true;
+                    printk(KERN_INFO "Manual mode: LED[%d] ON\n", switch_id);
+                }
                 break;
             }
 
