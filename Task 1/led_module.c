@@ -11,8 +11,8 @@
 #define NUM_SWITCHES 4
 
 // 실제 Raspberry Pi GPIO 핀 매핑 (검증 필요)
-static int led_pins[NUM_LEDS] = {17, 27, 22, 5};
-static int switch_pins[NUM_SWITCHES] = {6, 13, 19, 26};
+static int led_pins[NUM_LEDS] = {23, 24, 25, 1};
+static int switch_pins[NUM_SWITCHES] = {4, 17, 27, 22};
 static int irq_numbers[NUM_SWITCHES];
 
 struct led_state {
