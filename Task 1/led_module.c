@@ -13,7 +13,7 @@ static int led_pins[NUM_LEDS] = {23, 24, 25, 1};
 static int switch_pins[NUM_SWITCHES] = {4, 17, 27, 22};
 static int irq_numbers[NUM_SWITCHES];
 
-// 상태를 나타내는 구조체 추가
+// 상태를 나타내는 구조체
 struct led_state {
     volatile int mode;
     volatile int individual_direction;
@@ -28,19 +28,21 @@ static struct led_state led_control = {
     .thread_running = false
 };
 
+// LED 상태 초기화 함수
 static void reset_leds(void) {
     for (int i = 0; i < NUM_LEDS; i++) {
         gpio_set_value(led_pins[i], 0);
     }
 }
 
+// 특정 LED를 켜거나 끄는 함수
 static void set_led(int led_idx, int value) {
     if (led_idx >= 0 && led_idx < NUM_LEDS) {
         gpio_set_value(led_pins[led_idx], value);
     }
 }
 
-// LED 스레드 함수 개선
+// LED 제어 스레드 함수
 static int led_thread_function(void *data) {
     while (!kthread_should_stop()) {
         switch (led_control.mode) {
@@ -85,11 +87,11 @@ static int led_thread_function(void *data) {
                 break;
         }
     }
-    
     led_control.thread_running = false;
     return 0;
 }
 
+// 스위치 핸들러
 static irqreturn_t switch_handler(int irq, void *dev_id) {
     int switch_id = (int)(long)dev_id;
     printk(KERN_INFO "Switch %d pressed\n", switch_id);
@@ -108,7 +110,7 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
                 printk(KERN_INFO "Manual mode: LED[%d] ON\n", switch_id);
                 break;
             }
-        
+
         case 3: // 리셋 모드
             reset_leds();
             printk(KERN_INFO "Reset mode activated: All LEDs turned OFF\n");
@@ -117,39 +119,40 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
             printk(KERN_INFO "Previous mode cleared, ready for new mode\n");
             break;
 
-       default: // 초기 모드 선택 상태
-        led_control.mode = switch_id;
-    
-        switch (switch_id) {
-            case 0: // 전체 모드
-            case 1: // 개별 모드
-                led_control.thread = kthread_run(led_thread_function, NULL, "led_control_thread");
-                if (IS_ERR(led_control.thread)) {
-                    printk(KERN_ERR "Failed to create LED control thread\n");
-                    led_control.thread = NULL;
-                } else {
-                    led_control.thread_running = true;
-                }
-                break;
-    
-            case 2: // 수동 모드 진입
-                reset_leds();
-                printk(KERN_INFO "Manual mode activated. Select LED (0/1/2)\n");
-                break;
-    
-            case 3: // 리셋 모드
-                reset_leds();
-                printk(KERN_INFO "Reset mode: All LEDs turned OFF\n");
-                led_control.mode = -1;
-                printk(KERN_INFO "Ready for mode selection\n");
-                break;
-        }
-        break;
+        default: // 초기 모드 선택 상태
+            led_control.mode = switch_id;
+
+            switch (switch_id) {
+                case 0: // 전체 모드
+                case 1: // 개별 모드
+                    led_control.thread = kthread_run(led_thread_function, NULL, "led_control_thread");
+                    if (IS_ERR(led_control.thread)) {
+                        printk(KERN_ERR "Failed to create LED control thread\n");
+                        led_control.thread = NULL;
+                    } else {
+                        led_control.thread_running = true;
+                    }
+                    break;
+
+                case 2: // 수동 모드 진입
+                    reset_leds();
+                    printk(KERN_INFO "Manual mode activated. Select LED (0/1/2)\n");
+                    break;
+
+                case 3: // 리셋 모드
+                    reset_leds();
+                    printk(KERN_INFO "Reset mode: All LEDs turned OFF\n");
+                    led_control.mode = -1;
+                    printk(KERN_INFO "Ready for mode selection\n");
+                    break;
+            }
+            break;
     }
 
     return IRQ_HANDLED;
 }
 
+// 모듈 초기화 함수
 static int __init led_module_init(void) {
     int ret, i;
 
@@ -189,6 +192,7 @@ static int __init led_module_init(void) {
     return 0;
 }
 
+// 모듈 종료 함수
 static void __exit led_module_exit(void) {
     int i;
 
