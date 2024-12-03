@@ -5,20 +5,22 @@
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/kthread.h>
+#include <linux/mutex.h>
 
 #define NUM_LEDS 4
 #define NUM_SWITCHES 4
 
-static int led_pins[NUM_LEDS] = {23, 24, 25, 1};
-static int switch_pins[NUM_SWITCHES] = {4, 17, 27, 22};
+// 실제 Raspberry Pi GPIO 핀 매핑 (검증 필요)
+static int led_pins[NUM_LEDS] = {17, 27, 22, 5};
+static int switch_pins[NUM_SWITCHES] = {6, 13, 19, 26};
 static int irq_numbers[NUM_SWITCHES];
 
-// 상태를 나타내는 구조체
 struct led_state {
     volatile int mode;
     volatile int individual_direction;
     struct task_struct *thread;
     bool thread_running;
+    struct mutex lock;  // 뮤텍스 추가
 };
 
 static struct led_state led_control = {
@@ -28,31 +30,32 @@ static struct led_state led_control = {
     .thread_running = false
 };
 
-// LED 상태 초기화 함수
 static void reset_leds(void) {
     for (int i = 0; i < NUM_LEDS; i++) {
         gpio_set_value(led_pins[i], 0);
     }
 }
 
-// 특정 LED를 켜거나 끄는 함수
 static void set_led(int led_idx, int value) {
     if (led_idx >= 0 && led_idx < NUM_LEDS) {
         gpio_set_value(led_pins[led_idx], value);
     }
 }
 
-// LED 제어 스레드 함수
 static int led_thread_function(void *data) {
     while (!kthread_should_stop()) {
-        switch (led_control.mode) {
+        mutex_lock(&led_control.lock);
+        int current_mode = led_control.mode;
+        mutex_unlock(&led_control.lock);
+
+        switch (current_mode) {
             case 0: // 전체 모드
+                reset_leds();
                 for (int i = 0; i < NUM_LEDS; i++) {
                     set_led(i, 1);
                 }
                 printk(KERN_INFO "All LEDs ON\n");
                 msleep(2000);
-
                 reset_leds();
                 printk(KERN_INFO "All LEDs OFF\n");
                 msleep(2000);
@@ -60,9 +63,19 @@ static int led_thread_function(void *data) {
 
             case 1: // 개별 모드
                 reset_leds();
-                if (led_control.individual_direction == 0) {
+                mutex_lock(&led_control.lock);
+                int direction = led_control.individual_direction;
+                mutex_unlock(&led_control.lock);
+
+                if (direction == 0) {
                     for (int i = 0; i < NUM_LEDS; i++) {
-                        if (led_control.mode != 1) break;
+                        mutex_lock(&led_control.lock);
+                        if (led_control.mode != 1) {
+                            mutex_unlock(&led_control.lock);
+                            break;
+                        }
+                        mutex_unlock(&led_control.lock);
+
                         set_led(i, 1);
                         printk(KERN_INFO "LED[%d] ON\n", i);
                         msleep(2000);
@@ -70,16 +83,23 @@ static int led_thread_function(void *data) {
                     }
                 } else {
                     for (int i = NUM_LEDS - 1; i >= 0; i--) {
-                        if (led_control.mode != 1) break;
+                        mutex_lock(&led_control.lock);
+                        if (led_control.mode != 1) {
+                            mutex_unlock(&led_control.lock);
+                            break;
+                        }
+                        mutex_unlock(&led_control.lock);
+
                         set_led(i, 1);
                         printk(KERN_INFO "LED[%d] ON\n", i);
                         msleep(2000);
                         reset_leds();
                     }
                 }
+
+                mutex_lock(&led_control.lock);
                 led_control.individual_direction = !led_control.individual_direction;
-                printk(KERN_INFO "Direction reversed: %s\n",
-                       led_control.individual_direction ? "Right-to-Left" : "Left-to-Right");
+                mutex_unlock(&led_control.lock);
                 break;
 
             default:
@@ -87,15 +107,19 @@ static int led_thread_function(void *data) {
                 break;
         }
     }
+    
+    mutex_lock(&led_control.lock);
     led_control.thread_running = false;
+    mutex_unlock(&led_control.lock);
     return 0;
 }
 
-// 스위치 핸들러
 static irqreturn_t switch_handler(int irq, void *dev_id) {
     int switch_id = (int)(long)dev_id;
     printk(KERN_INFO "Switch %d pressed\n", switch_id);
 
+    mutex_lock(&led_control.lock);
+    
     // 기존 스레드 안전하게 중지
     if (led_control.thread && led_control.thread_running) {
         kthread_stop(led_control.thread);
@@ -103,23 +127,22 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
     }
 
     switch (led_control.mode) {
-        case 2: // 수동 모드 상태에서
-            if (switch_id < 3) { // 0, 1, 2 스위치 중 하나 선택시
+        case 2: // 수동 모드
+            if (switch_id < 3) {
                 reset_leds();
-                set_led(switch_id, 1); // 해당 번호의 LED 켜기
+                set_led(switch_id, 1);
                 printk(KERN_INFO "Manual mode: LED[%d] ON\n", switch_id);
                 break;
             }
 
         case 3: // 리셋 모드
             reset_leds();
-            printk(KERN_INFO "Reset mode activated: All LEDs turned OFF\n");
             led_control.mode = -1;
             led_control.individual_direction = 0;
-            printk(KERN_INFO "Previous mode cleared, ready for new mode\n");
+            printk(KERN_INFO "Reset mode: All LEDs OFF, Ready for new mode\n");
             break;
 
-        default: // 초기 모드 선택 상태
+        default: // 모드 선택
             led_control.mode = switch_id;
 
             switch (switch_id) {
@@ -134,27 +157,28 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
                     }
                     break;
 
-                case 2: // 수동 모드 진입
+                case 2: // 수동 모드
                     reset_leds();
-                    printk(KERN_INFO "Manual mode activated. Select LED (0/1/2)\n");
+                    printk(KERN_INFO "Manual mode: Select LED (0/1/2)\n");
                     break;
 
                 case 3: // 리셋 모드
                     reset_leds();
-                    printk(KERN_INFO "Reset mode: All LEDs turned OFF\n");
                     led_control.mode = -1;
-                    printk(KERN_INFO "Ready for mode selection\n");
+                    printk(KERN_INFO "Reset mode: All LEDs OFF\n");
                     break;
             }
             break;
     }
-
+    
+    mutex_unlock(&led_control.lock);
     return IRQ_HANDLED;
 }
 
-// 모듈 초기화 함수
 static int __init led_module_init(void) {
     int ret, i;
+
+    mutex_init(&led_control.lock);  // 뮤텍스 초기화
 
     printk(KERN_INFO "LED Module Init\n");
 
@@ -181,7 +205,8 @@ static int __init led_module_init(void) {
             return irq_numbers[i];
         }
 
-        ret = request_irq(irq_numbers[i], switch_handler, IRQF_TRIGGER_RISING, "switch_irq", (void *)(long)i);
+        // IRQF_TRIGGER_FALLING 또는 IRQF_TRIGGER_BOTH로 변경
+        ret = request_irq(irq_numbers[i], switch_handler, IRQF_TRIGGER_FALLING, "switch_irq", (void *)(long)i);
         if (ret) {
             printk(KERN_ERR "Failed to request IRQ %d for GPIO %d\n", irq_numbers[i], switch_pins[i]);
             return ret;
@@ -192,16 +217,16 @@ static int __init led_module_init(void) {
     return 0;
 }
 
-// 모듈 종료 함수
 static void __exit led_module_exit(void) {
     int i;
 
     printk(KERN_INFO "LED Module Exit\n");
 
-    // 스레드가 존재하면 중지
+    mutex_lock(&led_control.lock);
     if (led_control.thread) {
         kthread_stop(led_control.thread);
     }
+    mutex_unlock(&led_control.lock);
 
     for (i = 0; i < NUM_LEDS; i++) {
         gpio_set_value(led_pins[i], 0);
@@ -212,6 +237,8 @@ static void __exit led_module_exit(void) {
         free_irq(irq_numbers[i], (void *)(long)i);
         gpio_free(switch_pins[i]);
     }
+
+    mutex_destroy(&led_control.lock);
 
     printk(KERN_INFO "LED Module Exit Complete\n");
 }
