@@ -22,6 +22,11 @@ static int current_led = 0;
 static struct timer_list led_timer;
 static struct mutex mode_lock;
 
+static void reset_leds(void);
+static void set_led(int led_idx, int value);
+static irqreturn_t switch_handler(int irq, void *dev_id);
+static void led_timer_callback(struct timer_list *timer);
+
 static void reset_leds(void) {
     int i;
     for (i = 0; i < NUM_LEDS; i++) {
