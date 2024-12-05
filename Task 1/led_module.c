@@ -38,46 +38,6 @@ static void set_led(int led_idx, int value) {
     }
 }
 
-static void led_timer_callback(struct timer_list *timer) {
-    if (current_mode == -1) return;  // 모드가 없으면 타이머 동작 중지
-
-    mutex_lock(&mode_lock);
-
-    switch (current_mode) {
-        case 0: // 전체 모드
-            if (!led_states[0]) { 
-                int i;
-                for (i = 0; i < NUM_LEDS; i++) {
-                    set_led(i, 1);
-                }
-            } else { 
-                reset_leds();
-            }
-            break;
-
-        case 1: // 개별 모드
-            reset_leds();
-            set_led(current_led, 1);
-
-            if (direction == 0) { // 왼→오
-                current_led = (current_led + 1) % NUM_LEDS;
-            } else { // 오→왼
-                current_led = (current_led - 1 + NUM_LEDS) % NUM_LEDS;
-            }
-            break;
-
-        default:
-            break;
-    }
-
-    mutex_unlock(&mode_lock);
-
-    // 타이머 재설정 최적화
-    if (current_mode != -1) {
-        mod_timer(&led_timer, jiffies + HZ * 2);
-    }
-}
-
 static irqreturn_t switch_handler(int irq, void *dev_id) {
     int switch_id = (int)(long)dev_id;
     unsigned long current_time = jiffies;
@@ -92,11 +52,17 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
 
     switch (switch_id) {
         case 0: // 전체 모드
+            current_mode = 0;
+            current_led = -1; // 전체 모드에서는 개별 LED가 없음
+            del_timer(&led_timer);
+            timer_setup(&led_timer, led_timer_callback, 0);
+            mod_timer(&led_timer, jiffies + HZ * 2);
+            break;
+
         case 1: // 개별 모드
-            current_mode = switch_id;
-            current_led = (switch_id == 1) ? 0 : -1;
-            
-            // 타이머 재시작
+            current_mode = 1;
+            direction = !direction; // 방향 전환
+            current_led = (direction == 0) ? 0 : NUM_LEDS - 1; // 시작 LED 설정
             del_timer(&led_timer);
             timer_setup(&led_timer, led_timer_callback, 0);
             mod_timer(&led_timer, jiffies + HZ * 2);
@@ -120,6 +86,47 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
     mutex_unlock(&mode_lock);
 
     return IRQ_HANDLED;
+}
+
+static void led_timer_callback(struct timer_list *timer) {
+    if (current_mode == -1) return;  // 모드가 없으면 타이머 동작 중지
+
+    mutex_lock(&mode_lock);
+
+    switch (current_mode) {
+        case 0: // 전체 모드
+            if (!led_states[0]) { 
+                int i;
+                for (i = 0; i < NUM_LEDS; i++) {
+                    set_led(i, 1);
+                }
+            } else { 
+                reset_leds();
+            }
+            break;
+
+        case 1: // 개별 모드
+            reset_leds();
+            set_led(current_led, 1); // 현재 LED만 켜기
+
+            // 방향에 따라 다음 LED 선택
+            if (direction == 0) { // 왼→오
+                current_led = (current_led + 1) % NUM_LEDS;
+            } else { // 오→왼
+                current_led = (current_led - 1 + NUM_LEDS) % NUM_LEDS;
+            }
+            break;
+
+        default:
+            break;
+    }
+
+    mutex_unlock(&mode_lock);
+
+    // 타이머 재설정
+    if (current_mode != -1) {
+        mod_timer(&led_timer, jiffies + HZ * 2);
+    }
 }
 
 static int __init led_module_init(void) {
@@ -215,5 +222,3 @@ module_init(led_module_init);
 module_exit(led_module_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Your Name");
-MODULE_DESCRIPTION("Enhanced LED Control Module with Error Handling and Debounce");
