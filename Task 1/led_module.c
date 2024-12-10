@@ -65,7 +65,7 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
         case 1: // 개별 모드
             current_mode = 1;
             direction = !direction; 
-            current_led = (direction == 0) ? NUM_LEDS - 1 : 0; 
+            current_led = (direction == 0) ? 0 : NUM_LEDS - 1; 
             del_timer(&led_timer);
             timer_setup(&led_timer, led_timer_callback, 0);
             mod_timer(&led_timer, jiffies + HZ * 2);
@@ -109,8 +109,8 @@ static void led_timer_callback(struct timer_list *timer) {
         case 1: // 개별 모드
             set_led(current_led, 0); // 이전 LED 끄기
             current_led = (direction == 0) 
-                ? (current_led + 1) % NUM_LEDS 
-                : (current_led - 1 + NUM_LEDS) % NUM_LEDS;
+                ? (current_led - 1 + NUM_LEDS) % NUM_LEDS
+		: (current_led + 1) % NUM_LEDS;
             set_led(current_led, 1); // 현재 LED 켜기
             mod_timer(&led_timer, jiffies + HZ * 2);
             break;
