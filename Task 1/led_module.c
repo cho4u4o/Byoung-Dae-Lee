@@ -57,7 +57,6 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
     switch (switch_id) {
         case 0: // 전체 모드
             current_mode = 0;
-            current_led = -1; // 전체 모드에서는 개별 LED가 없음
             del_timer(&led_timer);
             timer_setup(&led_timer, led_timer_callback, 0);
             mod_timer(&led_timer, jiffies + HZ * 2);
@@ -74,15 +73,11 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
 
         case 2: // 수동 모드
             current_mode = 2;
-            if (led_states[switch_id]) {
-                set_led(switch_id, 0);
-            } else {
-                set_led(switch_id, 1);
-            }
             break;
 
         case 3: // 리셋 모드
             reset_leds();
+            current_mode = -1;
             del_timer(&led_timer);
             break;
     }
