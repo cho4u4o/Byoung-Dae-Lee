@@ -33,7 +33,6 @@ static void reset_leds(void) {
         gpio_set_value(led_pins[i], 0);
         led_states[i] = false;
     }
-    current_mode = -1;
 }
 
 static void set_led(int led_idx, int value) {
