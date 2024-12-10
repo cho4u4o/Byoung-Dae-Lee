@@ -58,7 +58,6 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
         if (switch_id == 3) {
             reset_leds();
             current_mode = -1;
-	    break;
         }
 	    
         if (switch_id >= 0 && switch_id <= 2) {
