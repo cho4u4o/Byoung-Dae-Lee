@@ -64,8 +64,8 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
 
         case 1: // 개별 모드
             current_mode = 1;
-            direction = !direction; // 방향 전환
-            current_led = (direction == 0) ? NUM_LEDS - 1 : 0; // 시작 LED 설정
+            direction = !direction; 
+            current_led = (direction == 0) ? 0 : NUM_LEDS - 1; 
             del_timer(&led_timer);
             timer_setup(&led_timer, led_timer_callback, 0);
             mod_timer(&led_timer, jiffies + HZ * 2);
@@ -89,12 +89,13 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
 
 static void led_timer_callback(struct timer_list *timer) {
     mutex_lock(&mode_lock);
+    int i;
 
     switch (current_mode) {
         case 0: // 전체 모드
             if (!led_states[0]) { 
                 // 모든 LED 켜기
-                for (int i = 0; i < NUM_LEDS; i++) {
+                for (i = 0; i < NUM_LEDS; i++) {
                     set_led(i, 1);
                 }
             } else {
@@ -108,14 +109,14 @@ static void led_timer_callback(struct timer_list *timer) {
         case 1: // 개별 모드
             set_led(current_led, 0); // 이전 LED 끄기
             current_led = (direction == 0) 
-                ? (current_led + 1) % NUM_LEDS 
-                : (current_led - 1 + NUM_LEDS) % NUM_LEDS;
+                ? (current_led - 1 + NUM_LEDS) % NUM_LEDS
+		: (current_led + 1) % NUM_LEDS;
             set_led(current_led, 1); // 현재 LED 켜기
             mod_timer(&led_timer, jiffies + HZ * 2);
             break;
 
         case 2: // 수동 모드
-            for (int i = 0; i < NUM_LEDS; i++) {
+            for (i = 0; i < NUM_LEDS; i++) {
                 set_led(i, led_states[i] ? 0 : 1); // LED 토글
             }
             mod_timer(&led_timer, jiffies + HZ * 2);
