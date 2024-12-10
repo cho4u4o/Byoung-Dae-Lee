@@ -94,47 +94,46 @@ static irqreturn_t switch_handler(int irq, void *dev_id) {
 }
 
 static void led_timer_callback(struct timer_list *timer) {
-    if (current_mode == -1) return;  // 모드가 없으면 타이머 동작 중지
-
     mutex_lock(&mode_lock);
 
     switch (current_mode) {
         case 0: // 전체 모드
             if (!led_states[0]) { 
-                int i;
-                for (i = 0; i < NUM_LEDS; i++) {
-                    set_led(i, 1); // 모든 LED 켜기
+                // 모든 LED 켜기
+                for (int i = 0; i < NUM_LEDS; i++) {
+                    set_led(i, 1);
                 }
             } else {
-                reset_leds(); // 모든 LED 끄기
+                // 모든 LED 끄기
+                reset_leds();
             }
-            mod_timer(&led_timer, jiffies + HZ * 2); // 2초 후에 다시 실행
+            // 타이머 재설정
+            mod_timer(&led_timer, jiffies + HZ * 2);
             break;
-    
 
         case 1: // 개별 모드
-            reset_leds();
-            set_led(current_led, 1); // 현재 LED만 켜기
+            set_led(current_led, 0); // 이전 LED 끄기
+            current_led = (direction == 0) 
+                ? (current_led + 1) % NUM_LEDS 
+                : (current_led - 1 + NUM_LEDS) % NUM_LEDS;
+            set_led(current_led, 1); // 현재 LED 켜기
+            mod_timer(&led_timer, jiffies + HZ * 2);
+            break;
 
-            // 방향에 따라 다음 LED 선택
-            if (direction == 0) { // 왼→오
-                current_led = (current_led + 1) % NUM_LEDS;
-            } else { // 오→왼
-                current_led = (current_led - 1 + NUM_LEDS) % NUM_LEDS;
+        case 2: // 수동 모드
+            for (int i = 0; i < NUM_LEDS; i++) {
+                set_led(i, led_states[i] ? 0 : 1); // LED 토글
             }
             mod_timer(&led_timer, jiffies + HZ * 2);
             break;
 
         default:
+            // 유효하지 않은 모드에서는 타이머 동작 중지
+            del_timer(&led_timer);
             break;
     }
 
     mutex_unlock(&mode_lock);
-
-    // 타이머 재설정
-    if (current_mode != -1) {
-        mod_timer(&led_timer, jiffies + HZ * 2);
-    }
 }
 
 static int __init led_module_init(void) {
